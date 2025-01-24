@@ -1,6 +1,9 @@
 use alloc::{boxed::Box, format, string::ToString, vec::Vec};
 use core::fmt::Debug;
+#[cfg(not(feature = "portable-atomic"))]
 use core::sync::atomic::{AtomicUsize, Ordering};
+#[cfg(feature = "portable-atomic")]
+use portable_atomic::{AtomicUsize, Ordering};
 use tinywasm_types::*;
 
 use crate::interpreter::{self, InterpreterRuntime, TinyWasmValue};
