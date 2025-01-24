@@ -169,11 +169,10 @@ pub(crate) fn convert_module_code(
     mut validator: FuncValidator<ValidatorResources>,
 ) -> Result<(Code, FuncValidatorAllocations)> {
     let locals_reader = func.get_locals_reader()?;
-    let count = locals_reader.get_count();
     let pos = locals_reader.original_position();
 
     // maps a local's address to the index in the type's locals array
-    let mut local_addr_map = Vec::with_capacity(count as usize);
+    let mut local_addr_map = Vec::new();
     let mut local_counts = ValueCounts::default();
 
     for (i, local) in locals_reader.into_iter().enumerate() {

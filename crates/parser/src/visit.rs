@@ -138,12 +138,13 @@ impl<R: WasmModuleResources> FunctionBuilder<R> {
 
 impl<R: WasmModuleResources> FunctionBuilder<R> {
     pub(crate) fn new(instr_capacity: usize, validator: FuncValidator<R>, local_addr_map: Vec<u32>) -> Self {
+        let _ = instr_capacity;
         Self {
             validator,
             local_addr_map,
-            instructions: Vec::with_capacity(instr_capacity),
+            instructions: Vec::new(),
             v128_constants: Vec::new(),
-            label_ptrs: Vec::with_capacity(256),
+            label_ptrs: Vec::new(),
             errors: Vec::new(),
         }
     }

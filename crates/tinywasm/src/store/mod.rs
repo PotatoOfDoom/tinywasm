@@ -222,7 +222,7 @@ impl Store {
     /// Add functions to the store, returning their addresses in the store
     pub(crate) fn init_funcs(&mut self, funcs: Vec<WasmFunction>, idx: ModuleInstanceAddr) -> Result<Vec<FuncAddr>> {
         let func_count = self.data.funcs.len();
-        let mut func_addrs = Vec::with_capacity(func_count);
+        let mut func_addrs = Vec::new();
         for (i, func) in funcs.into_iter().enumerate() {
             self.data.funcs.push(FunctionInstance::new_wasm(func, idx));
             func_addrs.push((i + func_count) as FuncAddr);
@@ -233,7 +233,7 @@ impl Store {
     /// Add tables to the store, returning their addresses in the store
     pub(crate) fn init_tables(&mut self, tables: Vec<TableType>, idx: ModuleInstanceAddr) -> Result<Vec<TableAddr>> {
         let table_count = self.data.tables.len();
-        let mut table_addrs = Vec::with_capacity(table_count);
+        let mut table_addrs = Vec::new();
         for (i, table) in tables.into_iter().enumerate() {
             self.data.tables.push(TableInstance::new(table, idx));
             table_addrs.push((i + table_count) as TableAddr);
@@ -244,7 +244,7 @@ impl Store {
     /// Add memories to the store, returning their addresses in the store
     pub(crate) fn init_memories(&mut self, memories: Vec<MemoryType>, idx: ModuleInstanceAddr) -> Result<Vec<MemAddr>> {
         let mem_count = self.data.memories.len();
-        let mut mem_addrs = Vec::with_capacity(mem_count);
+        let mut mem_addrs = Vec::new();
         for (i, mem) in memories.into_iter().enumerate() {
             if let MemoryArch::I64 = mem.arch() {
                 return Err(Error::UnsupportedFeature("64-bit memories".to_string()));
@@ -311,7 +311,7 @@ impl Store {
         idx: ModuleInstanceAddr,
     ) -> Result<(Box<[Addr]>, Option<Trap>)> {
         let elem_count = self.data.elements.len();
-        let mut elem_addrs = Vec::with_capacity(elem_count);
+        let mut elem_addrs = Vec::new();
         for (i, element) in elements.iter().enumerate() {
             let init = element
                 .items
@@ -368,7 +368,7 @@ impl Store {
         idx: ModuleInstanceAddr,
     ) -> Result<(Box<[Addr]>, Option<Trap>)> {
         let data_count = self.data.datas.len();
-        let mut data_addrs = Vec::with_capacity(data_count);
+        let mut data_addrs = Vec::new();
         for (i, data) in datas.into_iter().enumerate() {
             let data_val = match data.kind {
                 tinywasm_types::DataKind::Active { mem: mem_addr, offset } => {
