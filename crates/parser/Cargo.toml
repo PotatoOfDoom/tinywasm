@@ -9,7 +9,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-wasmparser = { git = "https://github.com/PotatoOfDoom/wasm-tools.git", default-features = false, features = [
+wasmparser = { git = "https://github.com/PotatoOfDoom/wasm-tools.git", path = "./crates/wasmparser", default-features = false, features = [
     "validate",
     "features",
     "simd",
