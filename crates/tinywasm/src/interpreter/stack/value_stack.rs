@@ -20,10 +20,10 @@ pub(crate) struct ValueStack {
 impl ValueStack {
     pub(crate) fn new() -> Self {
         Self {
-            stack_32: Vec::with_capacity(STACK_32_SIZE),
-            stack_64: Vec::with_capacity(STACK_64_SIZE),
-            stack_128: Vec::with_capacity(STACK_128_SIZE),
-            stack_ref: Vec::with_capacity(STACK_REF_SIZE),
+            stack_32: Vec::new(),
+            stack_64: Vec::new(),
+            stack_128: Vec::new(),
+            stack_ref: Vec::new(),
         }
     }
 
