@@ -743,7 +743,7 @@ version = "0.9.0-alpha.0"
 dependencies = [
  "log",
  "tinywasm-types",
- "wasmparser 0.223.0",
+ "wasmparser 0.224.0 (git+https://github.com/PotatoOfDoom/wasm-tools.git)",
 ]
 
 [[package]]
@@ -809,7 +809,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7249cf8cb0c6b9cb42bce90c0a5feb276fbf963fa385ff3d818ab3d90818ed6"
 dependencies = [
  "leb128",
- "wasmparser 0.224.0",
+ "wasmparser 0.224.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -842,6 +842,16 @@ dependencies = [
  "bitflags",
  "indexmap",
  "semver",
+]
+
+[[package]]
+name = "wasmparser"
+version = "0.224.0"
+source = "git+https://github.com/PotatoOfDoom/wasm-tools.git#41f11442421691148969d80b5c3bd9cc1aa299ab"
+dependencies = [
+ "bitflags",
+ "indexmap",
+ "portable-atomic",
 ]
 
 [[package]]

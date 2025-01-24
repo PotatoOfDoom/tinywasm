@@ -1,19 +1,24 @@
 [package]
-name="tinywasm-parser"
-version.workspace=true
-description="TinyWasm parser"
-edition.workspace=true
-license.workspace=true
-authors.workspace=true
-repository.workspace=true
-rust-version.workspace=true
+name = "tinywasm-parser"
+version.workspace = true
+description = "TinyWasm parser"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 
 [dependencies]
-wasmparser={version="0.223", default-features=false, features=["validate", "features", "simd"]}
-log={workspace=true, optional=true}
-tinywasm-types={version="0.9.0-alpha.0", path="../types", default-features=false}
+wasmparser = { git = "https://github.com/PotatoOfDoom/wasm-tools.git", default-features = false, features = [
+    "validate",
+    "features",
+    "simd",
+] }
+log = { workspace = true, optional = true }
+tinywasm-types = { version = "0.9.0-alpha.0", path = "../types", default-features = false }
 
 [features]
-default=["std", "logging"]
-logging=["log"]
-std=["tinywasm-types/std", "wasmparser/std"]
+default = ["std", "logging"]
+logging = ["log"]
+std = ["tinywasm-types/std", "wasmparser/std"]
+portable-atomic = ["wasmparser/portable-atomic"]
