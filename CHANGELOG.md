@@ -10,12 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Support for the custom memory page sizes proposal ([#22](https://github.com/explodingcamera/tinywasm/pull/22) by [@danielstuart14](https://github.com/danielstuart14))
+- Support for the `tail_call` proposal
 
-### Changed
+### Breaking Changes
 
-- **Breaking:**: New backwards-incompatible version of the twasm format (upgraded `rkyv` to 0.8.0)
-- **Breaking:**: `RefNull` has been removed and replaced with new `FuncRef` and `ExternRef` structs
+- New backwards-incompatible version of the twasm format based on `postcard` (thanks [@dragonnn](https://github.com/dragonnn))
+- `RefNull` has been removed and replaced with new `FuncRef` and `ExternRef` structs
 - Increased MSRV to 1.83.0
+- `tinywasm::Error` is now `non_exhaustive`, `Error::ParseError` has been rename to `Error::Parser` and `Error::Twasm` has been added.
 
 ### Fixed
 

@@ -4,7 +4,6 @@ use super::no_std_floats::NoStdFloatExt;
 
 use alloc::{format, rc::Rc, string::ToString};
 use core::ops::ControlFlow;
-use interpreter::simd::exec_next_simd;
 use interpreter::stack::CallFrame;
 use tinywasm_types::*;
 
@@ -56,8 +55,11 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             Select128 => self.stack.values.select::<Value128>(),
             SelectRef => self.stack.values.select::<ValueRef>(),
 
-            Call(v) => return self.exec_call_direct(*v),
-            CallIndirect(ty, table) => return self.exec_call_indirect(*ty, *table),
+            Call(v) => return self.exec_call_direct::<false>(*v),
+            CallIndirect(ty, table) => return self.exec_call_indirect::<false>(*ty, *table),
+
+            ReturnCall(v) => return self.exec_call_direct::<true>(*v),
+            ReturnCallIndirect(ty, table) => return self.exec_call_indirect::<true>(*ty, *table),
 
             If(end, el) => self.exec_if(*end, *el, (StackHeight::default(), StackHeight::default())),
             IfWithType(ty, end, el) => self.exec_if(*end, *el, (StackHeight::default(), (*ty).into())),
@@ -303,7 +305,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             LocalCopy128(from, to) => self.exec_local_copy::<Value128>(*from, *to),
             LocalCopyRef(from, to) => self.exec_local_copy::<ValueRef>(*from, *to),
 
-            Simd(op) => exec_next_simd(self, *op).to_cf()?,
+            i => return ControlFlow::Break(Some(Error::UnsupportedFeature(format!("unimplemented opcode: {i:?}")))),
         };
 
         self.cf.incr_instr_ptr();
@@ -315,50 +317,71 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         ControlFlow::Break(Some(Trap::Unreachable.into()))
     }
 
-    fn exec_call(&mut self, wasm_func: Rc<WasmFunction>, owner: ModuleInstanceAddr) -> ControlFlow<Option<Error>> {
-        let locals = self.stack.values.pop_locals(wasm_func.params, wasm_func.locals);
-        let new_call_frame = CallFrame::new_raw(wasm_func, owner, locals, self.stack.blocks.len() as u32);
-        self.cf.incr_instr_ptr(); // skip the call instruction
-        self.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame))?;
-        self.module.swap_with(self.cf.module_addr(), self.store);
+    fn exec_call<const IS_RETURN_CALL: bool>(
+        &mut self,
+        wasm_func: Rc<WasmFunction>,
+        owner: ModuleInstanceAddr,
+    ) -> ControlFlow<Option<Error>> {
+        if !IS_RETURN_CALL {
+            let locals = self.stack.values.pop_locals(wasm_func.params, wasm_func.locals);
+            let new_call_frame = CallFrame::new_raw(wasm_func, owner, locals, self.stack.blocks.len() as u32);
+            self.cf.incr_instr_ptr(); // skip the call instruction
+            self.stack.call_stack.push(core::mem::replace(&mut self.cf, new_call_frame))?;
+            self.module.swap_with(self.cf.module_addr(), self.store);
+        } else {
+            let locals = self.stack.values.pop_locals(wasm_func.params, wasm_func.locals);
+            self.cf.reuse_for(wasm_func, locals, self.stack.blocks.len() as u32, owner);
+            self.module.swap_with(self.cf.module_addr(), self.store);
+        }
+
         ControlFlow::Continue(())
     }
-    fn exec_call_direct(&mut self, v: u32) -> ControlFlow<Option<Error>> {
-        let func_inst = self.store.get_func(self.module.resolve_func_addr(v));
-        let wasm_func = match &func_inst.func {
-            crate::Function::Wasm(wasm_func) => wasm_func,
-            crate::Function::Host(host_func) => {
-                let func = &host_func.clone();
-                let params = self.stack.values.pop_params(&host_func.ty.params);
-                let res =
-                    func.call(FuncContext { store: self.store, module_addr: self.module.id() }, &params).to_cf()?;
-                self.stack.values.extend_from_wasmvalues(&res);
-                self.cf.incr_instr_ptr();
-                return ControlFlow::Continue(());
-            }
-        };
-
-        self.exec_call(wasm_func.clone(), func_inst.owner)
+    fn exec_call_host(&mut self, host_func: Rc<imports::HostFunction>) -> ControlFlow<Option<Error>> {
+        let params = self.stack.values.pop_params(&host_func.ty.params);
+        let res = host_func
+            .clone()
+            .call(FuncContext { store: self.store, module_addr: self.module.id() }, &params)
+            .to_cf()?;
+        self.stack.values.extend_from_wasmvalues(&res);
+        self.cf.incr_instr_ptr();
+        ControlFlow::Continue(())
     }
-    fn exec_call_indirect(&mut self, type_addr: u32, table_addr: u32) -> ControlFlow<Option<Error>> {
+    fn exec_call_direct<const IS_RETURN_CALL: bool>(&mut self, v: u32) -> ControlFlow<Option<Error>> {
+        let func_inst = self.store.get_func(self.module.resolve_func_addr(v));
+        match func_inst.func.clone() {
+            crate::Function::Wasm(wasm_func) => self.exec_call::<IS_RETURN_CALL>(wasm_func, func_inst.owner),
+            crate::Function::Host(host_func) => self.exec_call_host(host_func),
+        }
+    }
+    fn exec_call_indirect<const IS_RETURN_CALL: bool>(
+        &mut self,
+        type_addr: u32,
+        table_addr: u32,
+    ) -> ControlFlow<Option<Error>> {
         // verify that the table is of the right type, this should be validated by the parser already
         let func_ref = {
             let table = self.store.get_table(self.module.resolve_table_addr(table_addr));
             let table_idx: u32 = self.stack.values.pop::<i32>() as u32;
             assert!(table.kind.element_type == ValType::RefFunc, "table is not of type funcref");
-            table
-                .get(table_idx)
-                .map_err(|_| Error::Trap(Trap::UndefinedElement { index: table_idx as usize }))
-                .to_cf()?
-                .addr()
-                .ok_or(Error::Trap(Trap::UninitializedElement { index: table_idx as usize }))
-                .to_cf()?
+            let table = table.get(table_idx).map_err(|_| Trap::UndefinedElement { index: table_idx as usize }.into());
+            let table = table.to_cf()?;
+            table.addr().ok_or(Trap::UninitializedElement { index: table_idx as usize }.into()).to_cf()?
         };
 
         let func_inst = self.store.get_func(func_ref);
         let call_ty = self.module.func_ty(type_addr);
-        let wasm_func = match &func_inst.func {
-            crate::Function::Wasm(f) => f,
+
+        match func_inst.func.clone() {
+            crate::Function::Wasm(wasm_func) => {
+                if unlikely(wasm_func.ty != *call_ty) {
+                    return ControlFlow::Break(Some(
+                        Trap::IndirectCallTypeMismatch { actual: wasm_func.ty.clone(), expected: call_ty.clone() }
+                            .into(),
+                    ));
+                }
+
+                self.exec_call::<IS_RETURN_CALL>(wasm_func, func_inst.owner)
+            }
             crate::Function::Host(host_func) => {
                 if unlikely(host_func.ty != *call_ty) {
                     return ControlFlow::Break(Some(
@@ -367,27 +390,9 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                     ));
                 }
 
-                let host_func = host_func.clone();
-                let params = self.stack.values.pop_params(&host_func.ty.params);
-                let res =
-                    match host_func.call(FuncContext { store: self.store, module_addr: self.module.id() }, &params) {
-                        Ok(res) => res,
-                        Err(e) => return ControlFlow::Break(Some(e)),
-                    };
-
-                self.stack.values.extend_from_wasmvalues(&res);
-                self.cf.incr_instr_ptr();
-                return ControlFlow::Continue(());
+                self.exec_call_host(host_func)
             }
-        };
-
-        if unlikely(wasm_func.ty != *call_ty) {
-            return ControlFlow::Break(Some(
-                Trap::IndirectCallTypeMismatch { actual: wasm_func.ty.clone(), expected: call_ty.clone() }.into(),
-            ));
         }
-
-        self.exec_call(wasm_func.clone(), func_inst.owner)
     }
 
     fn exec_if(&mut self, else_offset: u32, end_offset: u32, (params, results): (StackHeight, StackHeight)) {
@@ -513,16 +518,31 @@ impl<'store, 'stack> Executor<'store, 'stack> {
 
     fn exec_memory_size(&mut self, addr: u32) {
         let mem = self.store.get_mem(self.module.resolve_mem_addr(addr));
-        self.stack.values.push::<i32>(mem.page_count as i32);
+
+        match mem.is_64bit() {
+            true => self.stack.values.push::<i64>(mem.page_count as i64),
+            false => self.stack.values.push::<i32>(mem.page_count as i32),
+        }
     }
     fn exec_memory_grow(&mut self, addr: u32) {
         let mem = self.store.get_mem_mut(self.module.resolve_mem_addr(addr));
-        let prev_size = mem.page_count as i32;
-        let pages_delta = self.stack.values.pop::<i32>();
-        self.stack.values.push::<i32>(match mem.grow(pages_delta) {
-            Some(_) => prev_size,
-            None => -1,
-        });
+        let prev_size = mem.page_count;
+
+        let pages_delta = match mem.is_64bit() {
+            true => self.stack.values.pop::<i64>(),
+            false => self.stack.values.pop::<i32>() as i64,
+        };
+
+        match (
+            mem.is_64bit(),
+            match mem.grow(pages_delta) {
+                Some(_) => prev_size as i64,
+                None => -1_i64,
+            },
+        ) {
+            (true, size) => self.stack.values.push::<i64>(size),
+            (false, size) => self.stack.values.push::<i32>(size as i32),
+        };
     }
 
     fn exec_memory_copy(&mut self, from: u32, to: u32) -> Result<()> {
@@ -600,14 +620,13 @@ impl<'store, 'stack> Executor<'store, 'stack> {
                 dst as usize,
                 src as usize,
                 size as usize,
-            )?;
+            )
         } else {
             // copy between two memories
             let (table_from, table_to) =
                 self.store.get_tables_mut(self.module.resolve_table_addr(from), self.module.resolve_table_addr(to))?;
-            table_to.copy_from_slice(dst as usize, table_from.load(src as usize, size as usize)?)?;
+            table_to.copy_from_slice(dst as usize, table_from.load(src as usize, size as usize)?)
         }
-        Ok(())
     }
 
     fn exec_mem_load<LOAD: MemLoadable<LOAD_SIZE>, const LOAD_SIZE: usize, TARGET: InternalValue>(
@@ -617,11 +636,16 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         cast: fn(LOAD) -> TARGET,
     ) -> ControlFlow<Option<Error>> {
         let mem = self.store.get_mem(self.module.resolve_mem_addr(mem_addr));
-        let val = self.stack.values.pop::<i32>() as u64;
-        let Some(Ok(addr)) = offset.checked_add(val).map(TryInto::try_into) else {
+
+        let addr = match mem.is_64bit() {
+            true => self.stack.values.pop::<i64>() as u64,
+            false => self.stack.values.pop::<i32>() as u32 as u64,
+        };
+
+        let Some(Ok(addr)) = offset.checked_add(addr).map(TryInto::try_into) else {
             cold();
             return ControlFlow::Break(Some(Error::Trap(Trap::MemoryOutOfBounds {
-                offset: val as usize,
+                offset: addr as usize,
                 len: LOAD_SIZE,
                 max: 0,
             })));
@@ -639,10 +663,16 @@ impl<'store, 'stack> Executor<'store, 'stack> {
         let mem = self.store.get_mem_mut(self.module.resolve_mem_addr(mem_addr));
         let val = self.stack.values.pop::<T>();
         let val = (cast(val)).to_mem_bytes();
-        let addr = self.stack.values.pop::<i32>() as u64;
+
+        let addr = match mem.is_64bit() {
+            true => self.stack.values.pop::<i64>() as u64,
+            false => self.stack.values.pop::<i32>() as u32 as u64,
+        };
+
         if let Err(e) = mem.store((offset + addr) as usize, val.len(), &val) {
             return ControlFlow::Break(Some(e));
         }
+
         ControlFlow::Continue(())
     }
 
@@ -702,7 +732,7 @@ impl<'store, 'stack> Executor<'store, 'stack> {
             return Err(Trap::TableOutOfBounds { offset: 0, len: 0, max: 0 }.into());
         };
 
-        table.init(dst, &items[offset as usize..(offset + size) as usize])
+        table.init(dst as i64, &items[offset as usize..(offset + size) as usize])
     }
     fn exec_table_grow(&mut self, table_index: u32) -> Result<()> {
         let table = self.store.get_table_mut(self.module.resolve_table_addr(table_index));
