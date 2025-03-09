@@ -80,6 +80,8 @@ impl Parser {
             shared_everything_threads: false,
             legacy_exceptions: false,
             component_model_async: false,
+            component_model_more_flags: false,
+            component_model_multiple_returns: false,
         };
         Validator::new_with_features(features.into())
     }
